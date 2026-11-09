@@ -800,10 +800,12 @@ table.io .arw{color:var(--faint);padding:0 2px}
       var rb = 0;
       list.forEach(function (u) { if (e.states[u.id].state !== 'reused') rb++; });
       var cw = right - left;
-      html += '<div class="rcell' + (rb ? '' : ' zero') + (cw < 46 ? ' tiny' : '') + '" role="listitem" data-s="' + s +
+      var SHORT = { optimize: 'optim', regalloc: 'regal', borrowck: 'borrow' };
+      var nm = cw < 54 ? (SHORT[list[0].crate] || list[0].crate) : list[0].crate;
+      html += '<div class="rcell' + (rb ? '' : ' zero') + (cw < 30 ? ' tiny' : '') + '" role="listitem" data-s="' + s +
         '" title="' + list[0].crate + ' · ' + rb + ' of ' + list.length + ' rebuilt — click to zoom" ' +
         'style="left:' + left + 'px;width:' + (right - left) + 'px">' +
-        '<b>' + list[0].crate + '</b><i>' + rb + '/' + list.length + '</i>' +
+        '<b>' + nm + '</b><i>' + rb + '/' + list.length + '</i>' +
         '<span class="rbar"><span style="width:' + (100 * rb / list.length).toFixed(0) + '%"></span></span></div>';
     });
     host.innerHTML = html;
@@ -938,13 +940,13 @@ table.io .arw{color:var(--faint);padding:0 2px}
     if (c.moved) extra += '<div class="stat"><div class="k">Relocated</div><div class="v" style="color:var(--moved)">' + c.moved + '</div></div>';
 
     document.getElementById('stats').innerHTML =
-      '<div class="stat"><div class="k">Rebuilt</div><div class="v rb">' + rebuiltN +
+      '<div class="stat" title="Units whose work was redone for this change, including those that produced byte-identical output."><div class="k">Rebuilt</div><div class="v rb">' + rebuiltN +
       '<small>/' + total + '</small></div>' + bar + '</div>' +
-      '<div class="stat"><div class="k">Reused</div><div class="v ru">' + c.reused + '</div></div>' +
+      '<div class="stat" title="Units whose inputs did not change: no work at all."><div class="k">Reused</div><div class="v ru">' + c.reused + '</div></div>' +
       extra +
-      '<div class="stat"><div class="k">Serial rebuild</div><div class="v">' + secs(e.rebuiltCost) + '</div></div>' +
-      '<div class="stat"><div class="k">Incremental -j' + M.project.jobs + '</div><div class="v">' + secs(e.wallIncr) + '</div></div>' +
-      '<div class="stat"><div class="k">Reuse saved</div><div class="v sv">' + secs(e.saved) +
+      '<div class="stat" title="Sum of rebuild costs run one at a time."><div class="k">Serial rebuild</div><div class="v">' + secs(e.rebuiltCost) + '</div></div>' +
+      '<div class="stat" title="Wall clock for this change with -j' + M.project.jobs + ', scheduled on the real dependency graph."><div class="k">Incremental -j' + M.project.jobs + '</div><div class="v">' + secs(e.wallIncr) + '</div></div>' +
+      '<div class="stat" title="Full clean-build wall clock (' + secs(e.wallFull) + ' at -j' + M.project.jobs + ') minus this incremental build."><div class="k">Reuse saved</div><div class="v sv">' + secs(e.saved) +
       '<small>' + e.savedPct + '%</small></div></div>';
 
     document.getElementById('changeNow').textContent = e.change.short;
@@ -1042,7 +1044,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
         '<div style="font-size:10.5px">' + rows + '</div></section>' +
         '<section class="blk"><h2>Most expensive rebuilds</h2><div class="hitlist">' +
         heavy.map(function (u) {
-          return '<button data-id="' + u.id + '">' + esc(u.mod) + '<span class="h">' + secs(u.cost) + '</span></button>';
+          return '<button data-id="' + u.id + '">' + esc(u.crate + ' :: ' + u.mod) + '<span class="h">' + secs(u.cost) + '</span></button>';
         }).join('') + '</div></section>' +
         '<section class="blk note">Click any unit in the graph for its inputs, outputs, hash before/after and the exact reuse reason. ' +
         'Times are sample data (synthetic graph, -j' + M.project.jobs + ').</section>';

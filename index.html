@@ -100,16 +100,28 @@ input[type=search]:focus{outline:none;border-color:#3a5a68}
 .note{color:var(--dim);font-size:10px;line-height:1.55}
 
 /* ---------- graph ---------- */
-.graphwrap{position:relative;min-width:0;background:
-  radial-gradient(circle at 30% 0%,#0e141a 0%,transparent 60%),#08090b;overflow:hidden}
+.graphwrap{position:relative;min-width:0;background:#08090b;overflow:hidden;display:flex;flex-direction:column}
+#ruler{position:relative;flex:0 0 auto;height:26px;border-bottom:1px solid var(--line);background:#0b0f13;overflow:hidden}
+.rcell{position:absolute;top:0;height:25px;overflow:hidden;padding:2px 4px 0;border-left:1px solid var(--line);
+  cursor:pointer;white-space:nowrap;line-height:1.15}
+.rcell:hover{background:#141b22}
+.rcell b{display:block;font:400 9px var(--mono);color:#a3b1be;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis}
+.rcell i{display:block;font:400 8.5px var(--mono);color:var(--dim);font-style:normal;overflow:hidden}
+.rcell .rbar{position:absolute;left:0;right:0;bottom:0;height:2px;background:#141b21}
+.rcell .rbar span{display:block;height:2px;background:var(--rebuilt)}
+.rcell.zero b{color:#6d7a86}
+.hint{position:absolute;left:12px;bottom:10px;z-index:3;font:10px var(--mono);color:#7f8b97;
+  background:#0b0f13e6;border:1px solid var(--line);padding:3px 7px;border-radius:2px;pointer-events:none}
+.hint[hidden]{display:none}
+svg#graph{flex:1 1 auto;min-height:0}
 .gtools{
-  position:absolute;top:8px;right:10px;z-index:3;display:flex;gap:4px;
+  position:absolute;top:33px;right:10px;z-index:3;display:flex;gap:4px;
   background:#0c1015e0;border:1px solid var(--line);border-radius:2px;padding:2px;backdrop-filter:blur(4px);
 }
 .gtools button{width:24px;height:22px;display:grid;place-items:center;color:var(--mut);border-radius:1px}
 .gtools button:hover{background:var(--raise);color:var(--ink)}
-.gtools .zl{font-size:10px;padding:0 6px;color:var(--dim);display:flex;align-items:center;min-width:38px;justify-content:center}
-svg#graph{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+.gtools .zlc{font-size:10px;padding:0 4px;color:var(--dim);display:flex;align-items:center;min-width:38px;justify-content:center}
+svg#graph{width:100%;display:block;cursor:grab;touch-action:none}
 svg#graph.panning{cursor:grabbing}
 .edge{fill:none;stroke:#202a33;stroke-width:.7}
 .edge.lit{stroke:#3d5563;stroke-width:1}
@@ -121,8 +133,10 @@ svg#graph.panning{cursor:grabbing}
 .node{cursor:pointer}
 .node rect{stroke-width:.8;rx:.5}
 .node text{font:8.4px var(--mono);pointer-events:none}
-.node.s-reused rect{fill:#101c21;stroke:#22434d}
-.node.s-reused text{fill:#6d8892}
+svg.zoomed-out .node text{display:none}
+svg.zoomed-out .colrule{stroke:#10161c}
+.node.s-reused rect{fill:#14262c;stroke:#2a5560}
+.node.s-reused text{fill:#7d99a4}
 .node.s-rebuilt rect{fill:#3a2a12;stroke:#ff9f43}
 .node.s-rebuilt text{fill:#ffd9a8}
 .node.s-identical rect{fill:#271c37;stroke:#b07ad8}
@@ -234,13 +248,15 @@ table.io .arw{color:var(--faint);padding:0 2px}
   </aside>
 
   <section class="graphwrap">
+    <div id="ruler" role="list" aria-label="Pipeline stages"></div>
     <div class="gtools">
       <button id="zout" title="Zoom out">−</button>
-      <div class="zl" id="zlabel">100%</div>
+      <div class="zlc" id="zlabel">100%</div>
       <button id="zin" title="Zoom in">+</button>
       <button id="zfit" title="Fit graph">⌗</button>
     </div>
     <svg id="graph" role="img" aria-label="Build unit dependency graph colored by reuse verdict"></svg>
+    <div class="hint" id="hint">zoomed out · scroll to zoom, or click a stage in the ruler</div>
   </section>
 
   <aside class="detail scroll" id="detail"></aside>
@@ -654,7 +670,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
   var M = window.MODEL;
   var NS = 'http://www.w3.org/2000/svg';
 
-  var NODE_W = 116, NODE_H = 13, PITCH = 134, ROW = 15, TOP = 30;
+  var NODE_W = 116, NODE_H = 12, PITCH = 134, ROW = 16, TOP = 24;
   var state = {
     change: M.changes[0].id,
     sel: null,
@@ -716,16 +732,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
       if (!list) return;
       var x = s * PITCH + 8;
       gHead.appendChild(el('line', { class: 'colrule', x1: x - 8, y1: 0, x2: x - 8, y2: H }));
-      var t = el('text', { class: 'stagehead', x: x, y: 13 });
-      t.textContent = list[0].crate;
-      var n = el('tspan', { class: 'n', dx: '5' });
-      n.textContent = list.length;
-      t.appendChild(n);
-      gHead.appendChild(t);
-      var u = el('text', { class: 'stagehead', x: x, y: 23, style: 'font-size:7.5px;letter-spacing:.06em' });
-      u.textContent = list[0].kind === 'test' ? 'suites' : list[0].kind === 'doc' ? 'docs' :
-        list[0].kind === 'cc' ? 'objects' : list[0].kind === 'link' ? 'artifacts' : 'units';
-      gHead.appendChild(u);
+
     });
     vp.insertBefore(gHead, gEdges);
 
@@ -767,14 +774,54 @@ table.io .arw{color:var(--faint);padding:0 2px}
   function applyView() {
     var v = state.view;
     vp.setAttribute('transform', 'translate(' + v.x + ',' + v.y + ') scale(' + v.k + ')');
-    svg.classList.toggle('zoomed-out', v.k < 0.58);
+    svg.classList.toggle('zoomed-out', v.k < 0.62);
     document.getElementById('zlabel').textContent = Math.round(v.k * 100) + '%';
+    document.getElementById('hint').hidden = v.k >= 0.62;
+    renderRuler();
+  }
+
+  function renderRuler() {
+    var host = document.getElementById('ruler');
+    var e = ev();
+    var w = host.clientWidth;
+    var html = '';
+    cols.forEach(function (list, s) {
+      if (!list) return;
+      var x = state.view.x + (s * PITCH + 8) * state.view.k;
+      var ww = (PITCH - 10) * state.view.k;
+      var left = Math.max(x, 0), right = Math.min(x + ww, w);
+      if (right - left < 8) return;
+      var rb = 0;
+      list.forEach(function (u) { if (e.states[u.id].state !== 'reused') rb++; });
+      html += '<div class="rcell' + (rb ? '' : ' zero') + '" role="listitem" data-s="' + s +
+        '" title="' + list[0].crate + ' · ' + rb + ' of ' + list.length + ' rebuilt — click to zoom" ' +
+        'style="left:' + left + 'px;width:' + (right - left) + 'px">' +
+        '<b>' + list[0].crate + '</b><i>' + rb + '/' + list.length + '</i>' +
+        '<span class="rbar"><span style="width:' + (100 * rb / list.length).toFixed(0) + '%"></span></span></div>';
+    });
+    host.innerHTML = html;
+    host.querySelectorAll('.rcell').forEach(function (c) {
+      c.onclick = function () { zoomStage(+c.dataset.s); };
+    });
+  }
+
+  function zoomStage(s) {
+    var r = svg.getBoundingClientRect();
+    var k = 1;
+    state.view.k = k;
+    state.view.x = r.width / 2 - (s * PITCH + 8 + NODE_W / 2) * k;
+    state.view.y = 8;
+    applyView();
   }
   function fit() {
     var r = svg.getBoundingClientRect();
-    var k = Math.min(r.width / W, r.height / H) * 0.98;
-    k = Math.max(0.16, Math.min(1, k));
-    state.view = { k: k, x: (r.width - W * k) / 2, y: (r.height - H * k) / 2 };
+    var k = Math.min(r.width / W, r.height / H) * 0.97;
+    k = Math.max(0.14, Math.min(1, k));
+    state.view = {
+      k: k,
+      x: Math.max(6, (r.width - W * k) / 2),
+      y: Math.max(6, (r.height - H * k) / 2)
+    };
     applyView();
   }
   function zoomAt(cx, cy, f) {
@@ -787,6 +834,15 @@ table.io .arw{color:var(--faint);padding:0 2px}
   document.getElementById('zin').onclick = function () { var r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.25); };
   document.getElementById('zout').onclick = function () { var r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 0.8); };
   document.getElementById('zfit').onclick = fit;
+  document.getElementById('zlabel').style.cursor = 'pointer';
+  document.getElementById('zlabel').title = 'Set zoom to 100%';
+  document.getElementById('zlabel').onclick = function () {
+    var r = svg.getBoundingClientRect();
+    state.view.k = 1;
+    state.view.x = r.width / 2 - (state.sel ? (pos[state.sel].x + NODE_W / 2) : (W / 2));
+    state.view.y = 8;
+    applyView();
+  };
 
   svg.addEventListener('wheel', function (e) {
     e.preventDefault();
@@ -855,6 +911,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
       else if (sel && related[a] && related[b]) p.setAttribute('class', 'edge lit');
       else if (sel) p.style.opacity = 0.25;
     });
+    renderRuler();
   }
 
   /* ---------- header ---------- */
@@ -891,11 +948,14 @@ table.io .arw{color:var(--faint);padding:0 2px}
     var host = document.getElementById('changes');
     host.innerHTML = M.changes.map(function (c, i) {
       var e = M.eval[c.id];
-      var rb = e.counts.rebuilt + e.counts.identical + e.counts.moved;
+      var rb = e.counts.rebuilt + e.counts.identical;
+      var lbl = e.counts.moved
+        ? '<b>' + e.counts.moved + ' relocated</b>'
+        : '<b>' + rb + ' rebuilt</b>';
       return '<button class="chg" role="option" data-id="' + c.id + '" aria-selected="' +
         (c.id === state.change) + '"><div class="t"><span class="idx">' + (i + 1) + '</span>' +
         '<span class="nm">' + esc(c.short) + '</span></div>' +
-        '<div class="meta"><b>' + rb + ' rebuilt</b><i>' + e.counts.reused + ' reused</i>' +
+        '<div class="meta">' + lbl + '<i>' + e.counts.reused + ' reused</i>' +
         '<span>' + e.savedPct + '% saved</span></div></button>';
     }).join('');
     host.querySelectorAll('.chg').forEach(function (b) {

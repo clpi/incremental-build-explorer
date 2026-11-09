@@ -110,6 +110,10 @@ input[type=search]:focus{outline:none;border-color:#3a5a68}
 .rcell .rbar{position:absolute;left:0;right:0;bottom:0;height:2px;background:#141b21}
 .rcell .rbar span{display:block;height:2px;background:var(--rebuilt)}
 .rcell.zero b{color:#6d7a86}
+.rcell.tiny{padding:0 1px;display:flex;align-items:center;justify-content:center}
+.rcell.tiny b{display:none}
+.rcell.tiny i{font-size:8px;line-height:1;color:#7d8a96;margin-top:-1px}
+.rcell.tiny.zero i{color:#4a545e}
 .hint{position:absolute;left:12px;bottom:10px;z-index:3;font:10px var(--mono);color:#7f8b97;
   background:#0b0f13e6;border:1px solid var(--line);padding:3px 7px;border-radius:2px;pointer-events:none}
 .hint[hidden]{display:none}
@@ -795,7 +799,8 @@ table.io .arw{color:var(--faint);padding:0 2px}
       if (right - left < 8) return;
       var rb = 0;
       list.forEach(function (u) { if (e.states[u.id].state !== 'reused') rb++; });
-      html += '<div class="rcell' + (rb ? '' : ' zero') + '" role="listitem" data-s="' + s +
+      var cw = right - left;
+      html += '<div class="rcell' + (rb ? '' : ' zero') + (cw < 46 ? ' tiny' : '') + '" role="listitem" data-s="' + s +
         '" title="' + list[0].crate + ' · ' + rb + ' of ' + list.length + ' rebuilt — click to zoom" ' +
         'style="left:' + left + 'px;width:' + (right - left) + 'px">' +
         '<b>' + list[0].crate + '</b><i>' + rb + '/' + list.length + '</i>' +

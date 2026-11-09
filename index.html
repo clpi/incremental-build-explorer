@@ -203,13 +203,23 @@ table.io .arw{color:var(--faint);padding:0 2px}
   main{grid-template-columns:232px minmax(0,1fr) 300px}
 }
 @media (max-width:860px){
-  body{overflow:auto}
-  main{grid-template-columns:1fr;grid-auto-rows:auto}
-  .rail{border-right:0;border-bottom:1px solid var(--line);max-height:220px}
-  .graphwrap{height:62vh;min-height:420px}
-  .detail{border-left:0;border-top:1px solid var(--line);max-height:none}
-  .topbar{gap:10px}
-  .stat{padding:1px 9px;min-width:64px}
+  body{overflow:auto;height:auto}
+  main{display:flex;flex-direction:column;min-height:0}
+  .rail{border-right:0;border-bottom:1px solid var(--line);max-height:none;overflow:visible}
+  .rail section.blk{padding:8px 10px}
+  .rail section.blk:first-child{padding-bottom:4px}
+  #changes{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px}
+  .chg{flex:0 0 auto;min-width:142px;margin:0;border-color:var(--line)}
+  .rail section.blk:nth-of-type(3){display:none}
+  .chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
+  .chip{flex:0 0 auto}
+  .graphwrap{height:56vh;min-height:380px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  .detail{border-left:0;max-height:none;flex:0 0 auto}
+  .topbar{gap:8px;padding:7px 10px}
+  .brand span{display:none}
+  .stats{margin-left:0;width:100%}
+  .stat{padding:1px 9px;min-width:62px}
+  .stat .v{font-size:13.5px}
 }
 </style>
 </head>

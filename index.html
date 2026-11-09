@@ -134,6 +134,8 @@ svg#graph.panning{cursor:grabbing}
 .node rect{stroke-width:.8;rx:.5}
 .node text{font:8.4px var(--mono);pointer-events:none}
 svg.zoomed-out .node text{display:none}
+svg.zoomed-out .node rect{shape-rendering:crispEdges}
+svg.zoomed-out .node.s-reused rect{fill:#1b3a44;stroke:#2b5560}
 svg.zoomed-out .colrule{stroke:#10161c}
 .node.s-reused rect{fill:#14262c;stroke:#2a5560}
 .node.s-reused text{fill:#7d99a4}
@@ -413,6 +415,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
       'typeck::coerce', 'typeck::closure'],
     'typeck::associated': ['mir::build', 'mir::pass/deagg', 'typeck::trait/impl'],
     'hir::def': null,
+    'typeck::infer': ['mir::build', 'borrowck::dataflow', 'codegen::ir-lower', 'mir::visit'],
     'codegen::llvm/intrinsics': ['codegen::isel', 'codegen::llvm/bridge']
   };
   Object.keys(HUBS).forEach(function (hub) {
@@ -441,7 +444,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
   UNITS.forEach(function (u) {
     u.inputs = [{ path: u.src, hash: fnv(u.src + '|src') }];
     u.deps.forEach(function (d) { u.inputs.push({ path: 'iface:' + d, hash: fnv(d + '|iface'), ifaceOf: d }); });
-    u.inputs.push({ path: 'build/flags.toml', hash: fnv('flags|opt2') });
+    u.inputs.push({ path: 'build/flags.toml', hash: fnv('build/flags.toml|src') });
   });
 
   // ---------- changes ----------
@@ -473,7 +476,8 @@ table.io .arw{color:var(--faint);padding:0 2px}
     { id: 'relocate', short: 'Relocation', title: 'Toolchain move: target/v1 → target/v2',
       kind: 'toolchain',
       blurb: 'Every artifact is rebuilt in a new directory. Content hashes are identical, so nothing semantically changed, but no work was saved either. This is the case a log hides and a graph shows.',
-      files: ['build/sysroot.toml'], mode: 'all', relocate: true, identicalAll: true },
+      files: ['build/sysroot.toml'], mode: 'all', relocate: true, identicalAll: true,
+      forceReason: 'toolchain path changed: target/v1 → target/v2' },
     { id: 'gen', short: 'Regenerated', title: 'Regenerate intrinsics table (formatting only)',
       kind: 'generated',
       blurb: 'A generated file is rewritten with identical semantics. The unit rebuilds, its stdout hash is unchanged, and the cache can prove it: reuse downstream, zero cost.',
@@ -606,21 +610,19 @@ table.io .arw{color:var(--faint);padding:0 2px}
         reason = up
           ? 'inputs unchanged · upstream rebuilt, interface fingerprint clean'
           : 'inputs unchanged';
-      } else if (ch.identicalAll) {
-        state = 'moved';
-        counts.moved++;
-        reason = 'output identical after rebuild · relocated to target/v2/, content hash unchanged';
-      } else if (isIdentical) {
-        state = 'identical';
-        counts.identical++;
-        reason = 'output identical after rebuild · content hash unchanged, artifact rewritten anyway';
+      } else if (ch.identicalAll || isIdentical) {
+        state = ch.identicalAll ? 'moved' : 'identical';
+        if (ch.identicalAll) counts.moved++; else counts.identical++;
+        reason = (ch.forceReason ? ch.forceReason + ' · ' : '') +
+          'output identical after rebuild · content hash unchanged, artifact rewritten anyway' +
+          (ch.identicalAll ? ' in a new directory' : '');
       } else {
         state = 'rebuilt';
         counts.rebuilt++;
         reason = srcChanged ? 'input changed: ' + u.src
           : (ch.flagChange ? 'build flags changed: ' + ch.flagChange.from + ' → ' + ch.flagChange.to
             : (ifaceMoved ? 'interface fingerprint changed: ' + u.deps.filter(function (d) { return ifaceChanged[d]; }).join(', ')
-              : 'upstream artifact content changed'));
+              : (ch.forceReason || 'upstream artifact content changed')));
       }
       if (isRebuilt) rebuiltCost += u.cost;
 

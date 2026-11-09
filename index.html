@@ -238,7 +238,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
     </section>
 
     <section class="blk">
-      <h2>Filter</h2>
+      <h2>Filter <em id="qcount"></em></h2>
       <input type="search" id="q" placeholder="filter units, sources…  ( / )" autocomplete="off" spellcheck="false">
       <div class="chips" style="margin-top:7px">
         <button class="chip" data-s="rebuilt" aria-pressed="true"><span class="sw"></span>rebuilt</button>
@@ -794,6 +794,18 @@ table.io .arw{color:var(--faint);padding:0 2px}
     document.getElementById('zlabel').textContent = Math.round(v.k * 100) + '%';
     document.getElementById('hint').hidden = v.k >= 0.62;
     renderRuler();
+
+    var qc = document.getElementById('qcount');
+    qc.textContent = state.q ? shown + ' match' + (shown === 1 ? '' : 'es') : '';
+    qc.style.color = shown === 0 && state.q ? 'var(--rebuilt)' : '';
+    var hint = document.getElementById('hint');
+    if (state.q && shown === 0) {
+      hint.textContent = 'no unit matches “' + state.q + '” — clear the filter (Esc)';
+      hint.hidden = false;
+    } else {
+      hint.textContent = 'zoomed out · scroll to zoom, or click a stage in the ruler';
+      hint.hidden = state.view.k >= 0.62;
+    }
   }
 
   function renderRuler() {
@@ -897,6 +909,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
 
   function paint() {
     var e = ev();
+    var shown = 0;
     var sel = state.sel;
     var related = {};
     if (sel) {
@@ -909,6 +922,7 @@ table.io .arw{color:var(--faint);padding:0 2px}
       var g = nodeEls[u.id];
       g.setAttribute('class', 'node s-' + st.state);
       var visible = state.on[st.state] !== false && matchesQuery(u);
+      if (visible) shown++;
       if (!visible) g.classList.add('dim');
       else if (state.dim && st.state === 'reused') g.classList.add('dim');
       else if (sel && !related[u.id]) g.classList.add('dim');

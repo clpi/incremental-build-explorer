@@ -1,0 +1,1085 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ravenc · incremental build explorer</title>
+<meta name="description" content="Explore an incremental build as a graph: what was rebuilt, what was reused, and why.">
+<style>:root{
+  --bg:#08090b; --panel:#0d1014; --panel-2:#111519; --raise:#151b21;
+  --line:#1c232b; --line-2:#28323c;
+  --ink:#e4eaf1; --mut:#8d98a5; --dim:#5c6773; --faint:#39424c;
+  --rebuilt:#ff9f43; --rebuilt-bg:#3a2a12;
+  --reused:#57b6c7; --reused-bg:#12242b;
+  --ident:#b07ad8; --ident-bg:#2a1f3b;
+  --moved:#5a97db; --moved-bg:#122338;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font:12px/1.45 var(--mono);
+  -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+::selection{background:#2a3d4a}
+
+/* ---------- top bar ---------- */
+.topbar{
+  display:flex;align-items:center;gap:16px;
+  padding:8px 14px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#0e1217,#0a0d11);
+  flex:0 0 auto;flex-wrap:wrap;
+}
+.brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+.brand b{font:600 14px/1 var(--sans);letter-spacing:.02em}
+.brand span{color:var(--dim);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.sample{
+  font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:#f0c68a;border:1px solid #4a3a20;background:#241b0e;
+  padding:2px 6px;border-radius:2px;white-space:nowrap;
+}
+.stats{display:flex;align-items:stretch;gap:0;margin-left:auto;flex-wrap:wrap}
+.stat{padding:1px 13px;border-left:1px solid var(--line);min-width:74px}
+.stat:first-child{border-left:0}
+.stat .k{color:var(--dim);font-size:9px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.stat .v{font-size:15px;line-height:1.25;font-variant-numeric:tabular-nums;white-space:nowrap}
+.stat .v small{font-size:10px;color:var(--mut);margin-left:2px}
+.v.rb{color:var(--rebuilt)} .v.ru{color:var(--reused)} .v.sv{color:#7fd6a5}
+.stat.pair .v{font-size:12.5px;padding-top:2px}
+
+/* ---------- shell ---------- */
+main{flex:1 1 auto;display:grid;grid-template-columns:266px minmax(0,1fr) 348px;min-height:0}
+.rail{border-right:1px solid var(--line);background:var(--panel);overflow-y:auto;min-height:0}
+.detail{border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;min-height:0}
+section.blk{border-bottom:1px solid var(--line);padding:10px 12px}
+section.blk h2{
+  margin:0 0 8px;font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dim);display:flex;justify-content:space-between;align-items:center;
+}
+section.blk h2 em{font-style:normal;color:var(--faint);letter-spacing:.04em}
+
+/* change list */
+.chg{display:block;width:100%;text-align:left;padding:7px 8px;border:1px solid transparent;border-radius:2px;margin-bottom:3px}
+.chg:hover{background:var(--panel-2)}
+.chg[aria-selected="true"]{background:#131a21;border-color:var(--line-2);box-shadow:inset 2px 0 0 var(--rebuilt)}
+.chg .t{display:flex;gap:6px;align-items:baseline}
+.chg .idx{color:var(--faint);font-size:10px}
+.chg .nm{font-size:11.5px;color:#cfd8e2}
+.chg[aria-selected="true"] .nm{color:#fff}
+.chg .meta{color:var(--dim);font-size:10px;margin-top:2px;display:flex;gap:7px}
+.chg .meta b{font-weight:400;color:var(--rebuilt)}
+.chg .meta i{font-style:normal;color:var(--reused)}
+
+/* filters */
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{
+  font-size:10px;padding:3px 7px;border:1px solid var(--line-2);border-radius:2px;
+  color:var(--mut);background:#0b0e12;display:flex;align-items:center;gap:5px;
+}
+.chip .sw{width:7px;height:7px;border-radius:1px;background:var(--mut)}
+.chip[aria-pressed="false"]{opacity:.38}
+.chip[data-s="rebuilt"] .sw{background:var(--rebuilt)}
+.chip[data-s="reused"] .sw{background:var(--reused)}
+.chip[data-s="identical"] .sw{background:var(--ident)}
+.chip[data-s="moved"] .sw{background:var(--moved)}
+input[type=search]{
+  width:100%;background:#080b0e;border:1px solid var(--line-2);color:var(--ink);
+  padding:5px 7px;font:11px var(--mono);border-radius:2px;
+}
+input[type=search]:focus{outline:none;border-color:#3a5a68}
+.toggle{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:10.5px;margin-top:7px;cursor:pointer}
+.toggle input{accent-color:#57b6c7;margin:0}
+.legend{font-size:10px;color:var(--mut);line-height:1.7}
+.legend div{display:flex;gap:6px;align-items:baseline}
+.legend b{font-weight:400;color:#c3ccd6}
+.legend .sw{width:8px;height:8px;border-radius:1px;flex:0 0 auto;margin-top:4px}
+.note{color:var(--dim);font-size:10px;line-height:1.55}
+
+/* ---------- graph ---------- */
+.graphwrap{position:relative;min-width:0;background:
+  radial-gradient(circle at 30% 0%,#0e141a 0%,transparent 60%),#08090b;overflow:hidden}
+.gtools{
+  position:absolute;top:8px;right:10px;z-index:3;display:flex;gap:4px;
+  background:#0c1015e0;border:1px solid var(--line);border-radius:2px;padding:2px;backdrop-filter:blur(4px);
+}
+.gtools button{width:24px;height:22px;display:grid;place-items:center;color:var(--mut);border-radius:1px}
+.gtools button:hover{background:var(--raise);color:var(--ink)}
+.gtools .zl{font-size:10px;padding:0 6px;color:var(--dim);display:flex;align-items:center;min-width:38px;justify-content:center}
+svg#graph{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+svg#graph.panning{cursor:grabbing}
+.edge{fill:none;stroke:#202a33;stroke-width:.7}
+.edge.lit{stroke:#3d5563;stroke-width:1}
+.edge.hot{stroke:#7d8f9c;stroke-width:1.1;opacity:.95}
+.stagehead{font:600 8.5px var(--sans);letter-spacing:.12em;text-transform:uppercase;fill:#4b5662}
+.stagehead tspan.n{fill:#2f3842;letter-spacing:0}
+.stagehead.on{fill:#8f9ba8}
+.colrule{stroke:#141a20;stroke-width:1}
+.node{cursor:pointer}
+.node rect{stroke-width:.8;rx:.5}
+.node text{font:8.4px var(--mono);pointer-events:none}
+.node.s-reused rect{fill:#101c21;stroke:#22434d}
+.node.s-reused text{fill:#6d8892}
+.node.s-rebuilt rect{fill:#3a2a12;stroke:#ff9f43}
+.node.s-rebuilt text{fill:#ffd9a8}
+.node.s-identical rect{fill:#271c37;stroke:#b07ad8}
+.node.s-identical text{fill:#dcc0f2}
+.node.s-moved rect{fill:#12243a;stroke:#5a97db}
+.node.s-moved text{fill:#b6d3f2}
+.node.dim{opacity:.14}
+.node.dim text{opacity:.5}
+.node.sel rect{stroke:#fff;stroke-width:1.6}
+.node.hot rect{stroke:#e9f2f8;stroke-width:1.1}
+.node:hover rect{stroke:#fff}
+.node .mk{fill:#0a0c0f;opacity:.85}
+
+/* ---------- detail ---------- */
+.dhead{padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+.dhead .ttl{font:600 12.5px/1.3 var(--mono);word-break:break-word;color:#f0f5fa}
+.dhead .sub{color:var(--dim);font-size:10px;margin-top:4px;display:flex;gap:8px;flex-wrap:wrap}
+.pill{font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;border-radius:2px;border:1px solid}
+.pill.s-rebuilt{color:var(--rebuilt);border-color:#5a4020;background:#241a0d}
+.pill.s-reused{color:var(--reused);border-color:#22505a;background:#0e1e23}
+.pill.s-identical{color:var(--ident);border-color:#4a3266;background:#1d1529}
+.pill.s-moved{color:var(--moved);border-color:#274a6e;background:#0f1d2d}
+.pill.ghost{color:var(--mut);border-color:var(--line-2)}
+.why{margin:10px 12px 0;padding:8px 9px;border-left:2px solid var(--line-2);background:#0b0f13;color:#b9c4d0;font-size:11px;line-height:1.5}
+.why.s-rebuilt{border-color:var(--rebuilt)}
+.why.s-reused{border-color:var(--reused)}
+.why.s-identical{border-color:var(--ident)}
+.why.s-moved{border-color:var(--moved)}
+.why .lbl{display:block;color:var(--dim);font-size:9px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:3px}
+.why code{color:#e6edf4;background:#151b22;padding:0 3px;border-radius:1px;font-size:10.5px}
+table.io{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:2px}
+table.io th{
+  text-align:left;font-weight:400;color:var(--dim);font-size:8.5px;letter-spacing:.1em;
+  text-transform:uppercase;padding:3px 4px;border-bottom:1px solid var(--line);
+}
+table.io td{padding:3px 4px;border-bottom:1px solid #131a20;vertical-align:top;color:#a9b5c1;word-break:break-all}
+table.io td.h{font-variant-numeric:tabular-nums;white-space:nowrap;color:#8fa0ad}
+table.io tr.ch td{color:#ffd0a0}
+table.io tr.ch td.h{color:var(--rebuilt)}
+table.io .arw{color:var(--faint);padding:0 2px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:10.5px;color:#a9b5c1}
+.kv dt{color:var(--dim);white-space:nowrap}
+.kv dd{margin:0;font-variant-numeric:tabular-nums}
+.overline{color:var(--dim);font-size:9px;letter-spacing:.13em;text-transform:uppercase;margin:0 0 6px}
+.bars{display:flex;height:6px;margin-top:8px;background:#0b0f13;overflow:hidden;border-radius:1px}
+.bars i{display:block;height:100%}
+.barlegend{display:flex;justify-content:space-between;font-size:9.5px;color:var(--dim);margin-top:4px}
+.dl{font-size:10px;color:var(--dim);padding:2px 0}
+.hitlist{display:flex;flex-direction:column;gap:1px;margin-top:6px}
+.hitlist button{text-align:left;font-size:10.5px;color:#9fb0bd;padding:3px 5px;border-left:1px solid var(--line-2)}
+.hitlist button:hover{background:var(--raise);color:#fff;border-left-color:var(--rebuilt)}
+.hitlist .h{color:var(--dim);font-size:9.5px;float:right}
+.scroll::-webkit-scrollbar{width:9px;height:9px}
+.scroll::-webkit-scrollbar-thumb{background:#232c35;border:2px solid var(--panel)}
+.scroll::-webkit-scrollbar-track{background:transparent}
+
+@media (max-width:1080px){
+  main{grid-template-columns:232px minmax(0,1fr) 300px}
+}
+@media (max-width:860px){
+  body{overflow:auto}
+  main{grid-template-columns:1fr;grid-auto-rows:auto}
+  .rail{border-right:0;border-bottom:1px solid var(--line);max-height:220px}
+  .graphwrap{height:62vh;min-height:420px}
+  .detail{border-left:0;border-top:1px solid var(--line);max-height:none}
+  .topbar{gap:10px}
+  .stat{padding:1px 9px;min-width:64px}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><b>ravenc</b><span>incremental build explorer</span></div>
+  <div class="sample" title="Every hash, timing and reuse verdict here is generated sample data, not a real build.">sample data</div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <aside class="rail scroll">
+    <section class="blk">
+      <h2>Change <em id="changeNow"></em></h2>
+      <div id="changes" role="listbox" aria-label="Canned change scenarios"></div>
+    </section>
+
+    <section class="blk">
+      <h2>Filter</h2>
+      <input type="search" id="q" placeholder="filter units, sources…  ( / )" autocomplete="off" spellcheck="false">
+      <div class="chips" style="margin-top:7px">
+        <button class="chip" data-s="rebuilt" aria-pressed="true"><span class="sw"></span>rebuilt</button>
+        <button class="chip" data-s="reused" aria-pressed="true"><span class="sw"></span>reused</button>
+        <button class="chip" data-s="identical" aria-pressed="true"><span class="sw"></span>same output</button>
+        <button class="chip" data-s="moved" aria-pressed="true"><span class="sw"></span>relocated</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="dimtoggle"> dim reused units</label>
+    </section>
+
+    <section class="blk">
+      <h2>Legend</h2>
+      <div class="legend">
+        <div><span class="sw" style="background:var(--rebuilt)"></span><span><b>rebuilt</b>, output changed</span></div>
+        <div><span class="sw" style="background:var(--ident)"></span><span><b>rebuilt</b>, output identical</span></div>
+        <div><span class="sw" style="background:var(--moved)"></span><span><b>relocated</b>, content identical</span></div>
+        <div><span class="sw" style="background:#1d4a55"></span><span><b>reused</b>, inputs unchanged</span></div>
+      </div>
+      <div class="note" style="margin-top:8px">Left→right is the pipeline: core, runtime, syntax, hir, typeck, mir, borrowck, optimize, mono, regalloc, codegen, link, driver, suites, docs. Edges are dependencies.</div>
+    </section>
+
+    <section class="blk note" id="pnote"></section>
+  </aside>
+
+  <section class="graphwrap">
+    <div class="gtools">
+      <button id="zout" title="Zoom out">−</button>
+      <div class="zl" id="zlabel">100%</div>
+      <button id="zin" title="Zoom in">+</button>
+      <button id="zfit" title="Fit graph">⌗</button>
+    </div>
+    <svg id="graph" role="img" aria-label="Build unit dependency graph colored by reuse verdict"></svg>
+  </section>
+
+  <aside class="detail scroll" id="detail"></aside>
+</main>
+
+<script>/* ravenc incremental build model — synthetic sample data.
+   Deterministic: same graph, same hashes, same timings on every load. */
+(function (root) {
+  'use strict';
+
+  // ---------- deterministic hashing ----------
+  function fnv(s) {
+    var a = 0x811c9dc5, b = 0x01000193;
+    for (var i = 0; i < s.length; i++) {
+      a ^= s.charCodeAt(i); a = Math.imul(a, 16777619) >>> 0;
+      b = (b + Math.imul(a ^ 0x9e3779b9, 2654435761)) >>> 0;
+    }
+    return (a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0')).slice(0, 12);
+  }
+  function rnd(seed) { // 0..1
+    var x = fnv(seed);
+    return parseInt(x.slice(2, 10), 16) / 0xffffffff;
+  }
+
+  var STAGES = ['core', 'runtime', 'syntax', 'hir', 'typeck', 'mir', 'borrowck',
+    'optimize', 'mono', 'regalloc', 'codegen', 'link', 'driver', 'tests', 'docs'];
+
+  var CRATES = [
+    { name: 'core', stage: 0, kind: 'compile', cost: [60, 240],
+      mods: 'alloc any array ascii borrow cell char clone cmp convert default ffi fmt/arguments fmt/builders fmt/float fmt/format fmt/num fmt/rt hash/mod hash/sip iter/adapters iter/traits iter/sum marker mem num/dec2flt num/f32 num/int num/float-round num/wrapping ops option ptr result slice slice/sort str str/lossy sync/atomic sync/once time' },
+    { name: 'rt', stage: 1, kind: 'cc', cost: [40, 180],
+      mods: 'alloc-glue panic unwind backtrace thread tls atomics float-parse string malloc-shim sanitizer-hooks' },
+    { name: 'syntax', stage: 2, kind: 'compile', cost: [90, 330],
+      mods: 'lexer token interner span parser/expr parser/ty parser/item parser/pat ast/visit ast/lower diag source-map kw-table char-class' },
+    { name: 'hir', stage: 3, kind: 'compile', cost: [110, 380],
+      mods: 'def item ty pat resolver/scope resolver/path resolver/import' },
+    { name: 'typeck', stage: 4, kind: 'compile', cost: [180, 720],
+      mods: 'infer solve coerce closure op-check associated consteval trait/select trait/impl' },
+    { name: 'mir', stage: 5, kind: 'compile', cost: [120, 400],
+      mods: 'build visit pass/const-prop pass/dce pass/deagg pass/guard' },
+    { name: 'borrowck', stage: 6, kind: 'compile', cost: [150, 520],
+      mods: 'dataflow loans nll movecheck' },
+    { name: 'optimize', stage: 7, kind: 'compile', cost: [140, 560],
+      mods: 'inline inliner/cost inliner/heuristics instcombine licm gvn loop-unroll tailcall' },
+    { name: 'mono', stage: 8, kind: 'compile', cost: [90, 320],
+      mods: 'collect inst cgu-partition cgu-merge export' },
+    { name: 'regalloc', stage: 9, kind: 'compile', cost: [160, 620],
+      mods: 'live coalesce assign spill split verify' },
+    { name: 'codegen', stage: 10, kind: 'compile', cost: [220, 900],
+      mods: 'abi layout ir-lower isel sched constpool debuginfo emit-asm emit-obj llvm/bridge llvm/intrinsics' },
+    { name: 'link', stage: 11, kind: 'link', cost: [420, 1500],
+      mods: 'driver symbols lto artifact' },
+    { name: 'driver', stage: 12, kind: 'compile', cost: [120, 380],
+      mods: 'cli session cache jobs fingerprint' },
+    { name: 'tests', stage: 13, kind: 'test', cost: [150, 640],
+      mods: 'ui.tyck/assoc-bound-07 ui.tyck/closure-infer-02 ui.tyck/impl-gap-11 ui.tyck/opaque-alias-04 ui.tyck/region-scope-19 ui.tyck/trait-obj-08 ui.tyck/where-clause-03 ui.tyck/gat-normalize-05 ui.tyck/const-generic-14 ui.tyck/infer-cycle-06 ui.tyck/deref-coerce-21 ui.tyck/diverging-02 ui.borrow/two-phase-03 ui.borrow/nll-return-07 ui.borrow/closure-capture-12 ui.borrow/struct-partial-04 ui.borrow/refcell-alias-09 ui.borrow/iterator-invalidate-01 ui.borrow/pin-project-06 ui.borrow/async-await-05 ui.cg/abi-sret-02 ui.cg/isel-cmp-04 ui.cg/isel-float-07 ui.cg/vec-shuffle-03 ui.cg/stack-align-06 ui.cg/tls-init-01 ui.cg/inline-asm-05 ui.cg/const-pool-08 ui.cg/debug-line-02 run-pass/macros-11 run-pass/generics-14 run-pass/modules-07 run-pass/closures-03 run-pass/traits-09 run-pass/patterns-05 run-pass/strings-12 run-pass/numeric-16 run-pass/threads-04 run-pass/ffi-02 integration/pipeline-smoke integration/cross-crate-lto integration/cgu-split integration/dep-graph integration/emit-obj integration/repro-build integration/incr-cache integration/cli-flags bench/parse-suite bench/typeck-suite bench/codegen-suite bench/overall fuzz.lexer/fuzz-lite fuzz.parser/fuzz-lite fuzz.mir/fuzz-lite integration/incr-graph integration/incr-cache-hit' },
+    { name: 'docs', stage: 14, kind: 'doc', cost: [80, 300],
+      mods: 'api/core api/syntax api/typeck api/codegen api/regalloc guide/architecture guide/incremental guide/contributing guide/diagnostics guide/abi guide/cgus guide/intrinsics guide/benchmarks' }
+  ];
+
+  // src path per kind
+  function srcPath(crate, mod, kind) {
+    if (mod.indexOf('ui.') === 0 || mod.indexOf('run-pass/') === 0 || mod.indexOf('integration/') === 0 ||
+        mod.indexOf('bench/') === 0 || mod.indexOf('fuzz.') === 0) return 'tests/' + mod + '.rs';
+    if (kind === 'cc') return 'src/rt/' + mod + '.c';
+    if (kind === 'doc') return 'docs/src/' + mod + '.md';
+    if (mod.indexOf('kw-table') === 0 || mod.indexOf('char-class') === 0) return 'build/gen/' + crate + '/' + mod + '.rs';
+    if (mod.indexOf('llvm/intrinsics') === 0) return 'build/gen/' + crate + '/' + mod + '.rs';
+    return 'src/' + crate + '/' + mod + '.rs';
+  }
+  function outPath(unit, i) {
+    var base = unit.crate + '/' + unit.mod.replace(/[\/.]/g, '-');
+    if (unit.kind === 'link') return i ? 'target/v1/bin/ravenc.d' : 'target/v1/bin/ravenc';
+    if (unit.kind === 'test') return 'target/v1/tests/' + base;
+    if (unit.kind === 'doc') return 'target/v1/doc/' + unit.crate + '/' + unit.mod + '/index.html';
+    if (unit.kind === 'cc') return 'target/v1/obj/' + base + '.o';
+    return i ? 'target/v1/obj/' + base + '.rmeta' : 'target/v1/obj/' + base + '.o';
+  }
+
+  // ---------- build the unit graph ----------
+  var UNITS = [];
+  CRATES.forEach(function (c) {
+    c.mods.split(' ').forEach(function (m) {
+      var id = c.name + '::' + m;
+      var unit = {
+        id: id, crate: c.name, mod: m, kind: c.kind, stage: c.stage,
+        stageName: STAGES[c.stage],
+        label: c.name + ' :: ' + m,
+        src: srcPath(c.name, m, c.kind),
+        cost: Math.round(c.cost[0] + rnd(id + '|cost') * (c.cost[1] - c.cost[0])),
+        outputs: []
+      };
+      UNITS.push(unit);
+    });
+  });
+
+  var byId = {};
+  UNITS.forEach(function (u) { byId[u.id] = u; });
+
+  // outputs
+  UNITS.forEach(function (u) {
+    var n = (u.kind === 'compile' && (u.crate === 'core' || u.crate === 'syntax' || u.crate === 'hir' ||
+      u.crate === 'typeck' || u.crate === 'mir' || u.crate === 'mono' || u.crate === 'codegen')) ? 2 :
+      (u.kind === 'link' ? 2 : 1);
+    for (var i = 0; i < n; i++) {
+      var p = outPath(u, i);
+      u.outputs.push({ path: p, hash: fnv(u.id + '|out' + i) });
+    }
+  });
+
+  // dependencies: earlier stages only (same stage only earlier index) => acyclic by construction
+  var stages = {};
+  UNITS.forEach(function (u) { (stages[u.stage] = stages[u.stage] || []).push(u); });
+
+  UNITS.forEach(function (u, idx) {
+    var deps = [];
+    if (u.stage === 0) {
+      var prev = stages[0].slice(0, stages[0].indexOf(u));
+      var k = prev.length ? 1 + (rnd(u.id + '|d') > 0.55 ? 1 : 0) : 0;
+      for (var i = 0; i < k; i++) {
+        var pick = prev[Math.floor(rnd(u.id + '|d' + i) * prev.length)];
+        if (pick && deps.indexOf(pick.id) < 0) deps.push(pick.id);
+      }
+    } else {
+      var pool = stages[u.stage - 1];
+      var n = 1 + Math.round(rnd(u.id + '|dn') * 2); // 1..3
+      for (var j = 0; j < n; j++) {
+        var p = pool[Math.floor(rnd(u.id + '|dp' + j) * pool.length)];
+        if (p && deps.indexOf(p.id) < 0) deps.push(p.id);
+      }
+      // occasional sibling dependency inside the same stage
+      if (rnd(u.id + '|sib') > 0.78) {
+        var same = stages[u.stage].slice(0, stages[u.stage].indexOf(u));
+        if (same.length) {
+          var s = same[Math.floor(rnd(u.id + '|sib2') * same.length)];
+          if (s && deps.indexOf(s.id) < 0) deps.push(s.id);
+        }
+      }
+    }
+    u.deps = deps;
+  });
+
+  // real graphs have hubs: a few units almost everything depends on. Inject them
+  // explicitly so the sample graph has the fan-in shape a compiler actually has.
+  var HUBS = {
+    'core::mem': null, // null = every unit in a later stage, plus later core units
+    'syntax::token': ['syntax::lexer', 'syntax::parser/expr', 'syntax::parser/ty',
+      'syntax::parser/item', 'syntax::parser/pat', 'syntax::ast/lower'],
+    'core::num/int': ['core::fmt/num', 'core::num/wrapping', 'mir::pass/const-prop',
+      'optimize::instcombine', 'codegen::constpool'],
+    'regalloc::live': ['regalloc::coalesce', 'regalloc::assign', 'regalloc::spill',
+      'regalloc::split', 'regalloc::verify'],
+    'typeck::solve': ['typeck::infer', 'typeck::associated', 'typeck::trait/select',
+      'typeck::coerce', 'typeck::closure'],
+    'typeck::associated': ['mir::build', 'mir::pass/deagg', 'typeck::trait/impl'],
+    'hir::def': null,
+    'codegen::llvm/intrinsics': ['codegen::isel', 'codegen::llvm/bridge']
+  };
+  Object.keys(HUBS).forEach(function (hub) {
+    var targets = HUBS[hub];
+    if (!targets) {
+      var hs = byId[hub].stage;
+      UNITS.forEach(function (u) {
+        if (u.id === hub) return;
+        if (u.stage > hs || (u.stage === hs && UNITS.indexOf(u) > UNITS.indexOf(byId[hub]))) {
+          if (u.deps.indexOf(hub) < 0 && u.deps.length < 4) u.deps.push(hub);
+        }
+      });
+      return;
+    }
+    targets.forEach(function (t) {
+      if (byId[t] && byId[t].deps.indexOf(hub) < 0) byId[t].deps.push(hub);
+    });
+  });
+
+  // dependents adjacency
+  var DEPENDENTS = {};
+  UNITS.forEach(function (u) { DEPENDENTS[u.id] = []; });
+  UNITS.forEach(function (u) { u.deps.forEach(function (d) { DEPENDENTS[d].push(u.id); }); });
+
+  // baseline input lists (source + interface fingerprints of deps)
+  UNITS.forEach(function (u) {
+    u.inputs = [{ path: u.src, hash: fnv(u.src + '|src') }];
+    u.deps.forEach(function (d) { u.inputs.push({ path: 'iface:' + d, hash: fnv(d + '|iface'), ifaceOf: d }); });
+    u.inputs.push({ path: 'build/flags.toml', hash: fnv('flags|opt2') });
+  });
+
+  // ---------- changes ----------
+  var CHANGES = [
+    { id: 'comment', short: 'Comment fix', title: 'Fix stale doc comment in syntax/token.rs',
+      kind: 'comment',
+      blurb: 'One doc-comment line rewritten. The file hash moves, so token rebuilds, but its interface fingerprint does not, so nothing downstream is invalidated.',
+      files: ['src/syntax/token.rs'], seeds: ['syntax::token'], mode: 'self' },
+    { id: 'regalloc', short: 'Live ranges', title: 'regalloc: rewrite live-range builder to interval splitting',
+      kind: 'source',
+      blurb: 'A real algorithm change inside one unit. Its dependents in the same crate must recompile; anything that only consumes the crate interface stays put.',
+      files: ['src/regalloc/live.rs'], seeds: ['regalloc::live'], mode: 'depth1' },
+    { id: 'typeck', short: 'Solver', title: 'typeck: worklist solver for associated-type constraints',
+      kind: 'source',
+      blurb: 'A mid-pipeline change. Rebuilds ripple two edges downstream and then stop at the mir boundary, where interface fingerprints are clean.',
+      files: ['src/typeck/solve.rs', 'src/typeck/associated.rs'],
+      seeds: ['typeck::solve', 'typeck::associated'], mode: 'depth2' },
+    { id: 'flags', short: 'Opt level', title: 'Build flag: -Copt-level=2 → -Copt-level=3',
+      kind: 'flags',
+      blurb: 'No source changed. The flag hash invalidates every backend unit and the link, while the entire front end is reused untouched.',
+      files: ['build/flags.toml'], mode: 'stages',
+      stages: ['optimize', 'mono', 'regalloc', 'codegen', 'link', 'tests'],
+      flagChange: { path: 'build/flags.toml', from: 'opt-level=2', to: 'opt-level=3' } },
+    { id: 'api', short: 'HIR stamp', title: 'hir::def: attach stability metadata to every definition',
+      kind: 'api',
+      blurb: 'The expensive case: one structural change in a shared definition table moves its interface fingerprint, and everything from typeck onward is downstream of it. Only the front end survives.',
+      files: ['src/hir/def.rs'], seeds: ['hir::def'], mode: 'closure',
+      ifaceChanged: ['hir::def'] },
+    { id: 'relocate', short: 'Relocation', title: 'Toolchain move: target/v1 → target/v2',
+      kind: 'toolchain',
+      blurb: 'Every artifact is rebuilt in a new directory. Content hashes are identical, so nothing semantically changed, but no work was saved either. This is the case a log hides and a graph shows.',
+      files: ['build/sysroot.toml'], mode: 'all', relocate: true, identicalAll: true },
+    { id: 'gen', short: 'Regenerated', title: 'Regenerate intrinsics table (formatting only)',
+      kind: 'generated',
+      blurb: 'A generated file is rewritten with identical semantics. The unit rebuilds, its stdout hash is unchanged, and the cache can prove it: reuse downstream, zero cost.',
+      files: ['build/gen/codegen/llvm/intrinsics.rs'], seeds: ['codegen::llvm/intrinsics'],
+      mode: 'self', identical: ['codegen::llvm/intrinsics'] }
+  ];
+
+  // ---------- per-change evaluation ----------
+  function closure(seeds, depthLimit) {
+    var set = {}, frontier = seeds.slice(), d = 0;
+    seeds.forEach(function (s) { set[s] = true; });
+    while (frontier.length && (depthLimit == null || d < depthLimit)) {
+      var next = [];
+      frontier.forEach(function (id) {
+        (DEPENDENTS[id] || []).forEach(function (dep) {
+          if (!set[dep]) { set[dep] = true; next.push(dep); }
+        });
+      });
+      frontier = next; d++;
+    }
+    return set;
+  }
+
+  function rebuildSet(ch) {
+    var set = {};
+    if (ch.mode === 'self') { ch.seeds.forEach(function (s) { set[s] = true; }); }
+    else if (ch.mode === 'depth1') { set = closure(ch.seeds, 1); }
+    else if (ch.mode === 'depth2') { set = closure(ch.seeds, 2); }
+    else if (ch.mode === 'closure') { set = closure(ch.seeds, null); }
+    else if (ch.mode === 'stages') {
+      UNITS.forEach(function (u) {
+        if (ch.stages.indexOf(u.stageName) >= 0) set[u.id] = true;
+      });
+    } else if (ch.mode === 'all') {
+      UNITS.forEach(function (u) { set[u.id] = true; });
+    }
+    return set;
+  }
+
+  // greedy list scheduler with N workers, honouring deps inside the rebuilt set
+  function schedule(rebuilt, workers) {
+    var finish = {}, indeg = {}, prio = {};
+    var ids = Object.keys(rebuilt);
+    var setOf = {}; ids.forEach(function (i) { setOf[i] = true; });
+    // critical path length (cost + max dep path) for priority
+    var order = ids.slice().sort(function (a, b) { return byId[a].stage - byId[b].stage || a.localeCompare(b); });
+    order.forEach(function (id) {
+      var best = 0;
+      byId[id].deps.forEach(function (d) { if (setOf[d] && prio[d] > best) best = prio[d]; });
+      prio[id] = best + byId[id].cost;
+    });
+    var pending = order.slice();
+    var freeAt = [];
+    for (var w = 0; w < workers; w++) freeAt.push(0);
+    var remaining = pending.length, wall = 0;
+    while (remaining > 0) {
+      // ready = all deps finished
+      var ready = pending.filter(function (id) {
+        return byId[id].deps.every(function (d) { return !setOf[d] || finish[d] != null; });
+      });
+      if (!ready.length) { // cycle safety (shouldn't happen)
+        ready = pending.slice(0, 1);
+      }
+      ready.sort(function (a, b) { return prio[b] - prio[a]; });
+      var progressed = false;
+      for (var r = 0; r < ready.length; r++) {
+        var id = ready[r];
+        var start = 0;
+        byId[id].deps.forEach(function (d) { if (setOf[d] && finish[d] > start) start = finish[d]; });
+        // earliest worker
+        var wi = 0;
+        for (var z = 1; z < workers; z++) if (freeAt[z] < freeAt[wi]) wi = z;
+        var s = Math.max(start, freeAt[wi]);
+        finish[id] = s + byId[id].cost;
+        freeAt[wi] = finish[id];
+        wall = Math.max(wall, finish[id]);
+        pending.splice(pending.indexOf(id), 1);
+        remaining--; progressed = true;
+      }
+      if (!progressed) break;
+    }
+    return { wall: wall, finish: finish };
+  }
+
+  var FULL = schedule((function () { var s = {}; UNITS.forEach(function (u) { s[u.id] = true; }); return s; })(), 8);
+
+  // evaluate a change into concrete per-unit states
+  function evaluate(ch) {
+    var rebuilt = rebuildSet(ch);
+    var identical = {};
+    if (ch.identicalAll) UNITS.forEach(function (u) { identical[u.id] = true; });
+    (ch.identical || []).forEach(function (id) { identical[id] = true; });
+
+    var sched = schedule(rebuilt, 8);
+    var changedFiles = {};
+    ch.files.forEach(function (f) { changedFiles[f] = fnv(ch.id + '|' + f); });
+    var ifaceChanged = {};
+    (ch.ifaceChanged || []).forEach(function (id) { ifaceChanged[id] = true; });
+
+    var states = {}, counts = { rebuilt: 0, reused: 0, identical: 0, moved: 0 };
+    var rebuiltCost = 0, reusedCost = 0;
+
+    UNITS.forEach(function (u) {
+      var isRebuilt = !!rebuilt[u.id];
+      var isIdentical = isRebuilt && !!identical[u.id];
+      var srcChanged = !!changedFiles[u.src];
+        var ifaceMoved = u.deps.some(function (d) { return ifaceChanged[d]; });
+
+      // inputs with before/after
+      var inputs = u.inputs.map(function (inp) {
+        var after = inp.hash;
+        if (changedFiles[inp.path]) after = changedFiles[inp.path];
+        else if (inp.ifaceOf && ifaceChanged[inp.ifaceOf]) after = fnv(inp.ifaceOf + '|iface|' + ch.id);
+        return { path: inp.path, before: inp.hash, after: after, changed: after !== inp.hash };
+      });
+
+      // outputs
+      var outputs = u.outputs.map(function (o, i) {
+        var pathBefore = o.path, pathAfter = o.path, hashBefore = o.hash, hashAfter = o.hash;
+        if (ch.relocate) pathAfter = o.path.replace('target/v1/', 'target/v2/');
+        if (isRebuilt && !isIdentical) hashAfter = fnv(u.id + '|' + ch.id + '|out' + i);
+        return { pathBefore: pathBefore, pathAfter: pathAfter, before: hashBefore, after: hashAfter };
+      });
+
+      var state, reason;
+      if (!isRebuilt) {
+        state = ch.relocate ? 'reused' : 'reused';
+        counts.reused++; reusedCost += u.cost;
+        var up = u.deps.some(function (d) { return rebuilt[d]; });
+        reason = up
+          ? 'inputs unchanged · upstream rebuilt, interface fingerprint clean'
+          : 'inputs unchanged';
+      } else if (ch.identicalAll) {
+        state = 'moved';
+        counts.moved++;
+        reason = 'output identical after rebuild · relocated to target/v2/, content hash unchanged';
+      } else if (isIdentical) {
+        state = 'identical';
+        counts.identical++;
+        reason = 'output identical after rebuild · content hash unchanged, artifact rewritten anyway';
+      } else {
+        state = 'rebuilt';
+        counts.rebuilt++;
+        reason = srcChanged ? 'input changed: ' + u.src
+          : (ch.flagChange ? 'build flags changed: ' + ch.flagChange.from + ' → ' + ch.flagChange.to
+            : (ifaceMoved ? 'interface fingerprint changed: ' + u.deps.filter(function (d) { return ifaceChanged[d]; }).join(', ')
+              : 'upstream artifact content changed'));
+      }
+      if (isRebuilt) rebuiltCost += u.cost;
+
+      var dependents = (DEPENDENTS[u.id] || []);
+      states[u.id] = {
+        state: state, reason: reason, inputs: inputs, outputs: outputs,
+        start: isRebuilt ? sched.finish[u.id] - u.cost : null,
+        finish: isRebuilt ? sched.finish[u.id] : null,
+        downRebuilt: dependents.filter(function (d) { return rebuilt[d]; }).length,
+        downTotal: dependents.length
+      };
+    });
+
+    return {
+      change: ch, states: states, counts: counts,
+      rebuiltCost: rebuiltCost,
+      reusedCost: reusedCost,
+      serialRebuild: rebuiltCost,
+      wallIncr: sched.wall,
+      wallFull: FULL.wall,
+      saved: Math.max(0, FULL.wall - sched.wall),
+      savedPct: Math.round(100 * (FULL.wall - sched.wall) / FULL.wall),
+      rebuiltIds: Object.keys(rebuilt)
+    };
+  }
+
+  var EVAL = {};
+  CHANGES.forEach(function (c) { EVAL[c.id] = evaluate(c); });
+
+  root.MODEL = {
+    project: {
+      name: 'ravenc', version: '0.14.2',
+      desc: 'self-hosted compiler: lexer through register allocation, plus runtime, CGUs and suites',
+      jobs: 8, unitCount: UNITS.length,
+      note: 'Synthetic sample build graph. Unit graph, hashes, reuse verdicts and timings are generated deterministically to demonstrate an incremental-build view. They are not measurements of a real build.'
+    },
+    stages: STAGES,
+    units: UNITS, byId: byId, dependents: DEPENDENTS,
+    changes: CHANGES, eval: EVAL,
+    fullWall: FULL.wall,
+    fnv: fnv
+  };
+})(typeof window !== 'undefined' ? window : global);
+</script>
+<script>(function () {
+  'use strict';
+  var M = window.MODEL;
+  var NS = 'http://www.w3.org/2000/svg';
+
+  var NODE_W = 116, NODE_H = 13, PITCH = 134, ROW = 15, TOP = 30;
+  var state = {
+    change: M.changes[0].id,
+    sel: null,
+    q: '',
+    dim: false,
+    on: { rebuilt: true, reused: true, identical: true, moved: true },
+    view: { x: 0, y: 0, k: 1 },
+    fitted: false
+  };
+
+  function el(tag, attrs) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function secs(ms) {
+    if (ms < 1000) return (ms | 0) + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    return Math.floor(ms / 60000) + 'm' + Math.round((ms % 60000) / 1000) + 's';
+  }
+
+  /* ---------- layout ---------- */
+  var pos = {}, cols = [], W = 0, H = 0;
+  (function layout() {
+    var byStage = [];
+    M.units.forEach(function (u) {
+      (byStage[u.stage] = byStage[u.stage] || []).push(u);
+    });
+    var maxRows = 0;
+    byStage.forEach(function (list, s) {
+      list.sort(function (a, b) { return a.mod.localeCompare(b.mod); });
+      cols[s] = list;
+      maxRows = Math.max(maxRows, list.length);
+      list.forEach(function (u, i) {
+        pos[u.id] = { x: s * PITCH + 8, y: TOP + i * ROW };
+      });
+    });
+    W = byStage.length * PITCH + 8;
+    H = TOP + maxRows * ROW + 6;
+  })();
+
+  /* ---------- graph ---------- */
+  var svg = document.getElementById('graph');
+  var vp = el('g', { id: 'vp' });
+  var gEdges = el('g', {}), gNodes = el('g', {});
+  vp.appendChild(gEdges); vp.appendChild(gNodes); svg.appendChild(vp);
+
+  var nodeEls = {}, edgeEls = [];
+
+  (function build() {
+    // stage headers + rules
+    var gHead = el('g', {});
+    cols.forEach(function (list, s) {
+      if (!list) return;
+      var x = s * PITCH + 8;
+      gHead.appendChild(el('line', { class: 'colrule', x1: x - 8, y1: 0, x2: x - 8, y2: H }));
+      var t = el('text', { class: 'stagehead', x: x, y: 13 });
+      t.textContent = list[0].crate;
+      var n = el('tspan', { class: 'n', dx: '5' });
+      n.textContent = list.length;
+      t.appendChild(n);
+      gHead.appendChild(t);
+      var u = el('text', { class: 'stagehead', x: x, y: 23, style: 'font-size:7.5px;letter-spacing:.06em' });
+      u.textContent = list[0].kind === 'test' ? 'suites' : list[0].kind === 'doc' ? 'docs' :
+        list[0].kind === 'cc' ? 'objects' : list[0].kind === 'link' ? 'artifacts' : 'units';
+      gHead.appendChild(u);
+    });
+    vp.insertBefore(gHead, gEdges);
+
+    // edges
+    M.units.forEach(function (u) {
+      u.deps.forEach(function (d) {
+        var a = pos[d], b = pos[u.id];
+        if (!a || !b) return;
+        var x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2;
+        var x2 = b.x, y2 = b.y + NODE_H / 2;
+        var xm = (x1 + x2) / 2;
+        if (a.x === b.x) xm = x1 + 18;
+        var p = el('path', {
+          class: 'edge',
+          d: 'M' + x1 + ',' + y1 + ' C' + xm + ',' + y1 + ' ' + xm + ',' + y2 + ' ' + x2 + ',' + y2
+        });
+        p.dataset.from = d; p.dataset.to = u.id;
+        gEdges.appendChild(p);
+        edgeEls.push(p);
+      });
+    });
+
+    // nodes
+    M.units.forEach(function (u) {
+      var g = el('g', { class: 'node', transform: 'translate(' + pos[u.id].x + ',' + pos[u.id].y + ')', 'data-id': u.id, tabindex: '-1' });
+      g.appendChild(el('rect', { width: NODE_W, height: NODE_H }));
+      var t = el('text', { x: 4, y: 9.7 });
+      var label = u.mod.length > 21 ? u.mod.slice(0, 20) + '…' : u.mod;
+      t.textContent = label;
+      g.appendChild(t);
+      var title = el('title', {});
+      g.appendChild(title);
+      gNodes.appendChild(g);
+      nodeEls[u.id] = g;
+    });
+  })();
+
+  /* ---------- view transform ---------- */
+  function applyView() {
+    var v = state.view;
+    vp.setAttribute('transform', 'translate(' + v.x + ',' + v.y + ') scale(' + v.k + ')');
+    svg.classList.toggle('zoomed-out', v.k < 0.58);
+    document.getElementById('zlabel').textContent = Math.round(v.k * 100) + '%';
+  }
+  function fit() {
+    var r = svg.getBoundingClientRect();
+    var k = Math.min(r.width / W, r.height / H) * 0.98;
+    k = Math.max(0.16, Math.min(1, k));
+    state.view = { k: k, x: (r.width - W * k) / 2, y: (r.height - H * k) / 2 };
+    applyView();
+  }
+  function zoomAt(cx, cy, f) {
+    var r = svg.getBoundingClientRect();
+    var v = state.view, k2 = Math.max(0.16, Math.min(3, v.k * f));
+    var px = (cx - r.left - v.x) / v.k, py = (cy - r.top - v.y) / v.k;
+    state.view = { k: k2, x: cx - r.left - px * k2, y: cy - r.top - py * k2 };
+    applyView();
+  }
+  document.getElementById('zin').onclick = function () { var r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.25); };
+  document.getElementById('zout').onclick = function () { var r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 0.8); };
+  document.getElementById('zfit').onclick = fit;
+
+  svg.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0016));
+  }, { passive: false });
+
+  var drag = null;
+  svg.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('.node')) return;
+    drag = { x: e.clientX, y: e.clientY, vx: state.view.x, vy: state.view.y };
+    svg.classList.add('panning');
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    state.view.x = drag.vx + (e.clientX - drag.x);
+    state.view.y = drag.vy + (e.clientY - drag.y);
+    applyView();
+  });
+  svg.addEventListener('pointerup', function (e) {
+    drag = null; svg.classList.remove('panning');
+    try { svg.releasePointerCapture(e.pointerId); } catch (err) { }
+  });
+
+  /* ---------- state application ---------- */
+  function ev() { return M.eval[state.change]; }
+
+  function matchesQuery(u) {
+    if (!state.q) return true;
+    var q = state.q.toLowerCase();
+    return (u.id + ' ' + u.src + ' ' + u.kind + ' ' + u.stageName).toLowerCase().indexOf(q) >= 0;
+  }
+
+  function paint() {
+    var e = ev();
+    var sel = state.sel;
+    var related = {};
+    if (sel) {
+      related[sel] = 1;
+      (M.byId[sel].deps || []).forEach(function (d) { related[d] = 1; });
+      (M.dependents[sel] || []).forEach(function (d) { related[d] = 1; });
+    }
+    M.units.forEach(function (u) {
+      var st = e.states[u.id];
+      var g = nodeEls[u.id];
+      g.setAttribute('class', 'node s-' + st.state);
+      var visible = state.on[st.state] !== false && matchesQuery(u);
+      if (!visible) g.classList.add('dim');
+      else if (state.dim && st.state === 'reused') g.classList.add('dim');
+      else if (sel && !related[u.id]) g.classList.add('dim');
+      if (sel === u.id) g.classList.add('sel');
+      else if (sel && related[u.id]) g.classList.add('hot');
+      var title = g.querySelector('title');
+      title.textContent = u.label + '  ·  ' + st.state + '\n' + st.reason +
+        '\n' + secs(u.cost) + ' · ' + u.deps.length + ' deps';
+    });
+    edgeEls.forEach(function (p) {
+      var a = p.dataset.from, b = p.dataset.to;
+      var stA = e.states[a], stB = e.states[b];
+      p.setAttribute('class', 'edge');
+      var va = state.on[stA.state] !== false && matchesQuery(M.byId[a]);
+      var vb = state.on[stB.state] !== false && matchesQuery(M.byId[b]);
+      if (!va || !vb) { p.style.opacity = 0; return; }
+      p.style.opacity = '';
+      if (sel && (a === sel || b === sel)) p.setAttribute('class', 'edge hot');
+      else if (sel && related[a] && related[b]) p.setAttribute('class', 'edge lit');
+      else if (sel) p.style.opacity = 0.25;
+    });
+  }
+
+  /* ---------- header ---------- */
+  function renderHeader() {
+    var e = ev();
+    var c = e.counts;
+    var total = M.units.length;
+    var rebuiltN = c.rebuilt + c.identical;
+    var bar = ['<div class="bars" title="' + rebuiltN + ' of ' + total + ' units rebuilt">'];
+    bar.push('<i style="width:' + (100 * rebuiltN / total).toFixed(2) + '%;background:var(--rebuilt)"></i>');
+    bar.push('<i style="width:' + (100 * (total - rebuiltN - c.moved) / total).toFixed(2) + '%;background:#1d4a55"></i>');
+    if (c.moved) bar.push('<i style="width:' + (100 * c.moved / total).toFixed(2) + '%;background:var(--moved)"></i>');
+    bar.push('</div>');
+
+    var extra = '';
+    if (c.identical) extra += '<div class="stat"><div class="k">Identical out</div><div class="v" style="color:var(--ident)">' + c.identical + '</div></div>';
+    if (c.moved) extra += '<div class="stat"><div class="k">Relocated</div><div class="v" style="color:var(--moved)">' + c.moved + '</div></div>';
+
+    document.getElementById('stats').innerHTML =
+      '<div class="stat"><div class="k">Rebuilt</div><div class="v rb">' + rebuiltN +
+      '<small>/' + total + '</small></div>' + bar + '</div>' +
+      '<div class="stat"><div class="k">Reused</div><div class="v ru">' + c.reused + '</div></div>' +
+      extra +
+      '<div class="stat"><div class="k">Serial rebuild</div><div class="v">' + secs(e.rebuiltCost) + '</div></div>' +
+      '<div class="stat"><div class="k">Incremental -j' + M.project.jobs + '</div><div class="v">' + secs(e.wallIncr) + '</div></div>' +
+      '<div class="stat"><div class="k">Reuse saved</div><div class="v sv">' + secs(e.saved) +
+      '<small>' + e.savedPct + '%</small></div></div>';
+
+    document.getElementById('changeNow').textContent = e.change.short;
+  }
+
+  /* ---------- change picker ---------- */
+  function renderChanges() {
+    var host = document.getElementById('changes');
+    host.innerHTML = M.changes.map(function (c, i) {
+      var e = M.eval[c.id];
+      var rb = e.counts.rebuilt + e.counts.identical + e.counts.moved;
+      return '<button class="chg" role="option" data-id="' + c.id + '" aria-selected="' +
+        (c.id === state.change) + '"><div class="t"><span class="idx">' + (i + 1) + '</span>' +
+        '<span class="nm">' + esc(c.short) + '</span></div>' +
+        '<div class="meta"><b>' + rb + ' rebuilt</b><i>' + e.counts.reused + ' reused</i>' +
+        '<span>' + e.savedPct + '% saved</span></div></button>';
+    }).join('');
+    host.querySelectorAll('.chg').forEach(function (b) {
+      b.onclick = function () { setChange(b.dataset.id); };
+    });
+  }
+
+  function setChange(id) {
+    state.change = id;
+    state.sel = null;
+    renderChanges(); renderHeader(); paint(); renderDetail();
+  }
+
+  /* ---------- detail ---------- */
+  function outputsHTML(st) {
+    return st.outputs.map(function (o) {
+      var relocated = o.pathBefore !== o.pathAfter;
+      var hashCell = o.before === o.after
+        ? '<span class="h">' + o.before + '</span>'
+        : '<span class="h">' + o.before + '</span><span class="arw">→</span><span class="h" style="color:var(--rebuilt)">' + o.after + '</span>';
+      var pathCell = relocated
+        ? esc(o.pathBefore) + '<br><span class="arw">→</span> ' + esc(o.pathAfter)
+        : esc(o.pathAfter);
+      var cls = (o.before !== o.after || relocated) ? ' class="ch"' : '';
+      return '<tr' + cls + '><td>' + pathCell + '</td><td class="h">' + hashCell + '</td></tr>';
+    }).join('');
+  }
+
+  function inputsHTML(st) {
+    return st.inputs.map(function (i) {
+      var cell = i.before === i.after
+        ? '<span class="h" style="opacity:.62">' + i.before + '</span>'
+        : '<span class="h">' + i.before + '</span><span class="arw">→</span><span class="h">' + i.after + '</span>';
+      return '<tr' + (i.changed ? ' class="ch"' : '') + '><td>' + esc(i.path) + '</td><td class="h">' + cell + '</td></tr>';
+    }).join('');
+  }
+
+  function renderDetail() {
+    var host = document.getElementById('detail');
+    var e = ev();
+
+    if (!state.sel) {
+      var byStage = {};
+      M.units.forEach(function (u) {
+        var st = e.states[u.id];
+        var s = byStage[u.stageName] = byStage[u.stageName] || { total: 0, rb: 0, cost: 0 };
+        s.total++;
+        if (st.state !== 'reused') { s.rb++; s.cost += u.cost; }
+      });
+      var rows = Object.keys(byStage).map(function (k) {
+        var s = byStage[k];
+        return '<div style="display:flex;gap:6px;align-items:center;padding:1px 0">' +
+          '<span style="width:58px;color:#93a1af">' + k + '</span>' +
+          '<span style="flex:1;height:5px;background:#0b0f13;display:block"><span style="display:block;height:5px;width:' +
+          (100 * s.rb / s.total).toFixed(1) + '%;background:' + (s.rb ? 'var(--rebuilt)' : '#1d4a55') + '"></span></span>' +
+          '<span style="width:44px;text-align:right;color:var(--dim)">' + s.rb + '/' + s.total + '</span></div>';
+      }).join('');
+
+      var heavy = M.units.filter(function (u) { return e.states[u.id].state !== 'reused'; })
+        .sort(function (a, b) { return b.cost - a.cost; }).slice(0, 8);
+
+      var files = e.change.files.map(function (f, i) {
+        var before = M.fnv(f + '|src');
+        var after = M.fnv(e.change.id + '|' + f);
+        return '<tr class="ch"><td>' + esc(f) + '</td><td class="h">' + before +
+          '<span class="arw">→</span><span class="h" style="color:var(--rebuilt)">' + after + '</span></td></tr>';
+      }).join('');
+
+      host.innerHTML =
+        '<div class="dhead"><div class="ttl">' + esc(e.change.title) + '</div>' +
+        '<div class="sub"><span class="pill ghost">' + esc(e.change.kind) + '</span>' +
+        '<span>' + e.counts.rebuilt + ' rebuilt · ' + e.counts.reused + ' reused</span></div></div>' +
+        '<div class="why"><span class="lbl">What changed</span>' + esc(e.change.blurb) + '</div>' +
+        '<section class="blk"><h2>Changed files</h2><table class="io">' +
+        '<tr><th>Path</th><th>Hash</th></tr>' + files + '</table></section>' +
+        '<section class="blk"><h2>Rebuild pressure by stage <em>rebuilt / total</em></h2>' +
+        '<div style="font-size:10.5px">' + rows + '</div></section>' +
+        '<section class="blk"><h2>Most expensive rebuilds</h2><div class="hitlist">' +
+        heavy.map(function (u) {
+          return '<button data-id="' + u.id + '">' + esc(u.mod) + '<span class="h">' + secs(u.cost) + '</span></button>';
+        }).join('') + '</div></section>' +
+        '<section class="blk note">Click any unit in the graph for its inputs, outputs, hash before/after and the exact reuse reason. ' +
+        'Times are sample data (synthetic graph, -j' + M.project.jobs + ').</section>';
+      host.querySelectorAll('.hitlist button').forEach(function (b) {
+        b.onclick = function () { select(b.dataset.id, true); };
+      });
+      return;
+    }
+
+    var u = M.byId[state.sel];
+    var st = e.states[u.id];
+    var moved = st.state === 'moved';
+    var hashNote = st.state === 'reused' ? 'no hash moved' :
+      st.state === 'identical' ? 'content hash unchanged' : moved ? 'path moved, content identical' : 'content hash moved';
+
+    host.innerHTML =
+      '<div class="dhead"><div class="ttl">' + esc(u.label) + '</div>' +
+      '<div class="sub"><span class="pill s-' + st.state + '">' + st.state + '</span>' +
+      '<span class="pill ghost">' + esc(u.kind) + '</span>' +
+      '<span>' + esc(u.stageName) + '</span><span>' + secs(u.cost) + '</span></div></div>' +
+      '<div class="why s-' + st.state + '"><span class="lbl">Why</span>' + esc(st.reason) + '</div>' +
+      '<section class="blk"><h2>Inputs <em>' + st.inputs.length + ' · ' + hashNote + '</em></h2>' +
+      '<table class="io"><tr><th>Input</th><th>Hash before → after</th></tr>' + inputsHTML(st) + '</table></section>' +
+      '<section class="blk"><h2>Outputs <em>' + st.outputs.length + '</em></h2>' +
+      '<table class="io"><tr><th>Artifact</th><th>Hash</th></tr>' + outputsHTML(st) + '</table></section>' +
+      '<section class="blk"><h2>Position in this build</h2><dl class="kv">' +
+      '<dt>Direct dependents</dt><dd>' + st.downTotal + '</dd>' +
+      '<dt>Downstream rebuilt</dt><dd>' + st.downRebuilt + '</dd>' +
+      '<dt>Cost</dt><dd>' + secs(u.cost) + '</dd>' +
+      (st.start != null
+        ? '<dt>Starts / ends</dt><dd>' + secs(st.start) + ' → ' + secs(st.finish) + '</dd>'
+        : '<dt>Scheduled</dt><dd>not rebuilt</dd>') +
+      '<dt>Source</dt><dd>' + esc(u.src) + '</dd>' +
+      '</dl></section>' +
+      '<section class="blk"><h2>Reuse rule</h2><div class="note">A unit is rebuilt only when one of its input hashes moves: ' +
+      'its own sources, the interface fingerprint of a dependency, or the resolved build flags. ' +
+      'A rebuilt unit whose outputs hash identically is still reported, because the work happened.</div></section>';
+  }
+
+  function select(id, reveal) {
+    state.sel = id;
+    paint(); renderDetail();
+    if (reveal) revealUnit(id);
+  }
+  function revealUnit(id) {
+    var p = pos[id];
+    var r = svg.getBoundingClientRect();
+    var k = Math.max(state.view.k, 0.75);
+    state.view.k = k;
+    state.view.x = r.width / 2 - (p.x + NODE_W / 2) * k;
+    state.view.y = r.height / 2 - (p.y + NODE_H / 2) * k;
+    applyView();
+  }
+
+  /* ---------- interactions ---------- */
+  gNodes.addEventListener('click', function (e) {
+    var g = e.target.closest('.node');
+    if (!g) return;
+    select(g.dataset.id, false);
+  });
+  gNodes.addEventListener('dblclick', function (e) {
+    var g = e.target.closest('.node');
+    if (g) { select(g.dataset.id, false); revealUnit(g.dataset.id); }
+  });
+
+  document.getElementById('q').addEventListener('input', function (e) {
+    state.q = e.target.value.trim();
+    paint();
+  });
+  document.getElementById('dimtoggle').addEventListener('change', function (e) {
+    state.dim = e.target.checked;
+    paint();
+  });
+  document.querySelectorAll('.chip').forEach(function (c) {
+    c.onclick = function () {
+      var s = c.dataset.s;
+      state.on[s] = !state.on[s];
+      c.setAttribute('aria-pressed', String(state.on[s]));
+      paint();
+    };
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (state.q) { state.q = ''; document.getElementById('q').value = ''; paint(); }
+      else { state.sel = null; paint(); renderDetail(); }
+    }
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault(); document.getElementById('q').focus();
+    }
+    if ((e.key === 'j' || e.key === 'k') && document.activeElement.tagName !== 'INPUT') {
+      var i = M.changes.findIndex(function (c) { return c.id === state.change; });
+      i = (i + (e.key === 'j' ? 1 : M.changes.length - 1)) % M.changes.length;
+      setChange(M.changes[i].id);
+    }
+  });
+
+  /* ---------- boot ---------- */
+  renderChanges(); renderHeader(); paint(); renderDetail();
+  fit();
+  document.getElementById('pnote').textContent =
+    M.project.name + ' ' + M.project.version + ' · ' + M.units.length + ' units · ' + M.project.jobs + ' jobs';
+  window.addEventListener('resize', function () { applyView(); });
+})();
+</script>
+</body>
+</html>

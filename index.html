@@ -794,18 +794,6 @@ table.io .arw{color:var(--faint);padding:0 2px}
     document.getElementById('zlabel').textContent = Math.round(v.k * 100) + '%';
     document.getElementById('hint').hidden = v.k >= 0.62;
     renderRuler();
-
-    var qc = document.getElementById('qcount');
-    qc.textContent = state.q ? shown + ' match' + (shown === 1 ? '' : 'es') : '';
-    qc.style.color = shown === 0 && state.q ? 'var(--rebuilt)' : '';
-    var hint = document.getElementById('hint');
-    if (state.q && shown === 0) {
-      hint.textContent = 'no unit matches “' + state.q + '” — clear the filter (Esc)';
-      hint.hidden = false;
-    } else {
-      hint.textContent = 'zoomed out · scroll to zoom, or click a stage in the ruler';
-      hint.hidden = state.view.k >= 0.62;
-    }
   }
 
   function renderRuler() {
@@ -945,6 +933,21 @@ table.io .arw{color:var(--faint);padding:0 2px}
       else if (sel) p.style.opacity = 0.25;
     });
     renderRuler();
+    paintFilterMeta(shown);
+  }
+
+  function paintFilterMeta(shown) {
+    var qc = document.getElementById('qcount');
+    qc.textContent = state.q ? shown + ' match' + (shown === 1 ? '' : 'es') : '';
+    qc.style.color = shown === 0 && state.q ? 'var(--rebuilt)' : '';
+    var hint = document.getElementById('hint');
+    if (state.q && shown === 0) {
+      hint.textContent = 'no unit matches “' + state.q + '” — clear the filter (Esc)';
+      hint.hidden = false;
+    } else {
+      hint.textContent = 'zoomed out · scroll to zoom, or click a stage in the ruler';
+      hint.hidden = state.view.k >= 0.62;
+    }
   }
 
   /* ---------- header ---------- */

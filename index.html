@@ -688,7 +688,9 @@ table.io .arw{color:var(--faint);padding:0 2px}
 
   var NODE_W = 116, NODE_H = 12, PITCH = 134, ROW = 16, TOP = 24;
   var state = {
-    change: M.changes[0].id,
+    // open on the scenario that shows both colours at once: the backend is
+    // invalidated by a flag change while the whole front end is reused.
+    change: 'flags',
     sel: null,
     q: '',
     dim: false,
